@@ -35,7 +35,14 @@
   .grid { display: grid; grid-template-columns: repeat(12, 1fr); gap: .8rem; }
   .col-4 { grid-column: span 4; } .col-6 { grid-column: span 6; }
   .col-8 { grid-column: span 8; } .col-12 { grid-column: span 12; }
-  @media (max-width: 820px){ .col-4,.col-6,.col-8 { grid-column: span 12; } }
+  @media (max-width: 820px){
+    .col-4,.col-6,.col-8 { grid-column: span 12; }
+    .table-wrap, #rtable { display: block; overflow-x: auto; white-space: nowrap; }
+    .toolbar { flex-wrap: wrap; }
+    .toolbar input { min-width: 0; }
+    body { padding: .6rem; }
+    h1 { font-size: 1.1rem; }
+  }
 
   .panel { background: var(--panel); border: 1px solid var(--border); border-radius: 10px; padding: .85rem .9rem; }
   .panel h2 { font-size: .72rem; text-transform: uppercase; letter-spacing: .08em; color: var(--muted); margin: 0 0 .7rem; font-weight: 600; }
@@ -247,6 +254,7 @@ function render(d){
     <div class="toolbar">
       <input id="didinput" placeholder="did:key:z6Mk…" style="flex:1" />
       <button onclick="inspectDid()">Check</button>
+      <button onclick="copyDid(this)">Copy</button>
     </div>
     <div id="didresult" style="margin-top:.5rem"></div>
   </div>`;
@@ -288,6 +296,16 @@ function filterRooms(){
   renderRoomRows(rows, true);
 }
 
+function copyDid(btn) {
+  const did = document.getElementById("didinput").value.trim();
+  if (!did) return;
+  navigator.clipboard.writeText(did).then(() => {
+    const old = btn.textContent;
+    btn.textContent = "Copied";
+    setTimeout(() => (btn.textContent = old), 1200);
+  });
+}
+
 function inspectDid() {
   const did = document.getElementById("didinput").value.trim();
   const box = document.getElementById("didresult");
@@ -317,7 +335,7 @@ function load() {
 load();
 // Keep the page live: re-poll the function periodically (function itself
 // long-polls technocore.chat, so this just refreshes the view every 20s).
-setInterval(load, 20000);
+setInterval(load, 30000);
 </script>
 </body>
 </html>
