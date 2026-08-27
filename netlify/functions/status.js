@@ -125,7 +125,12 @@ export default async function handler() {
         long_poll_seconds: L.long_poll_seconds,
       },
       rooms: { summary, list: rooms },
-      lobby: { last_seq: lastSeq, messages: lobby },
+      lobby: {
+        count: lobby.length,
+        first_seq: lobby.length ? lobby[0].seq : 0,
+        last_seq: lastSeq,
+        messages: lobby,
+      },
       errors: null,
     };
 
