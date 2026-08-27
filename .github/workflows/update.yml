@@ -28,9 +28,17 @@ jobs:
           python-version: "3.12"
 
       - name: Fetch snapshot
-        run: python3 update.py
+        id: fetch
+        run: |
+          if python3 update.py; then
+            echo "ok=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "ok=false" >> "$GITHUB_OUTPUT"
+            echo "Snapshot partial (e.g. transient 503) — keeping last good status.json, not failing the run."
+          fi
 
       - name: Commit status.json
+        if: steps.fetch.outputs.ok == 'true'
         run: |
           git config user.name "0xAnh bot"
           git config user.email "0xAnh@users.noreply.github.com"
