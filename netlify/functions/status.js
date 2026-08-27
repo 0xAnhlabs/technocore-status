@@ -113,22 +113,6 @@ export default async function handler() {
     const summary = parseSummary(roomsText) || {};
     const rooms = parseRooms(roomsText);
 
-    // Derived stats (computed on the sampled 50 rooms)
-    let idleOld = 0;
-    let storedSum = 0;
-    for (const r of rooms) {
-      // age like "0s", "3h", "2d" -> seconds
-      const am = String(r.age).match(/^(\d+)([smhd])$/);
-      if (am) {
-        const v = +am[1];
-        const mul = { s: 1, m: 60, h: 3600, d: 86400 }[am[2]];
-        if (v * mul > 6 * 86400) idleOld++;
-      }
-      storedSum += toBytes(r.size) || 0;
-    }
-    const totalStored = toBytes(summary.stored) || 0;
-    const storagePct = totalStored ? (storedSum / totalStored) * 100 : 0;
-
     const lobbyJson = await get("/r/lobby?format=json&limit=12", true);
     const lobby = parseLobby(lobbyJson);
     const lastSeq = lobby.length ? lobby[lobby.length - 1].seq : 0;
@@ -152,15 +136,7 @@ export default async function handler() {
         retention_seconds: L.retention_seconds,
         long_poll_seconds: L.long_poll_seconds,
       },
-      rooms: {
-        summary,
-        list: rooms,
-        stats: {
-          sampled: rooms.length,
-          idle_old: idleOld,
-          storage_pct: +storagePct.toFixed(1),
-        },
-      },
+      rooms: { summary, list: rooms },
       lobby: {
         count: lobby.length,
         first_seq: lobby.length ? lobby[0].seq : 0,

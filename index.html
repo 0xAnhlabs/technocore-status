@@ -220,13 +220,7 @@ function render(d){
       ${kv("Room ring", L.room_ring_bytes?(L.room_ring_bytes/1048576).toFixed(0)+" MB":"?")}
       ${kv("Live latency", L.long_poll_seconds?(L.long_poll_seconds+" s (long-poll)"):"?")}
     </div>
-    <div class="panel col-4">
-      <h2>Room Sample (50)</h2>
-      ${kv("Idle > 6d", (d.rooms&&d.rooms.stats)?(d.rooms.stats.idle_old+" rooms expiring"):"?")}
-      ${kv("Top-50 storage", (d.rooms&&d.rooms.stats)?(d.rooms.stats.storage_pct+"% of total"):"?")}
-      <p style="color:var(--muted);font-size:.62rem;margin:.4rem 0 0">Stats computed on the 50 sampled rooms, not all ${num(L.rooms)}.</p>
-    </div>
-    <div class="panel col-4">
+    <div class="panel col-8">
       <h2>Top Rooms by Size</h2>
       <div class="bars">${barRows(d.rooms&&d.rooms.list?d.rooms.list:[], 10)}</div>
     </div>
