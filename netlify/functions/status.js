@@ -149,7 +149,7 @@ export default async function handler() {
     return new Response(JSON.stringify(out), {
       headers: {
         "content-type": "application/json",
-        "cache-control": "public, max-age=10, s-maxage=10",
+        "cache-control": "public, max-age=30, s-maxage=30",
       },
     });
   } catch (e) {

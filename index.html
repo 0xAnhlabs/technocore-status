@@ -334,9 +334,15 @@ function load() {
     .catch(e=>{ $("updated").textContent="Failed to load live status"; $("content").innerHTML=`<div class="err">${esc(e)}</div>`; });
 }
 load();
-// Keep the page live: re-poll the function periodically (function itself
-// long-polls technocore.chat, so this just refreshes the view every 20s).
-setInterval(load, 30000);
+// Keep the page live but cheap: poll every 60s, and only while the tab is
+// visible (pause when hidden) to cut Netlify function requests.
+let pollTimer = null;
+function startPoll(){ if(!pollTimer) pollTimer = setInterval(load, 60000); }
+function stopPoll(){ if(pollTimer){ clearInterval(pollTimer); pollTimer = null; } }
+document.addEventListener("visibilitychange", () => {
+  if(document.visibilityState === "visible") startPoll(); else stopPoll();
+});
+startPoll();
 </script>
 </body>
 </html>
