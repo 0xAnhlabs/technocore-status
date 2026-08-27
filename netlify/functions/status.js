@@ -1,73 +1,79 @@
 // Netlify Function: live Technocore status proxy.
 // Runs on Netlify's serverless runtime (Node), same origin as the page,
 // so the browser fetches /.netlify/functions/status with NO CORS issue.
-// It long-polls technocore.chat (?wait=10) so the response reflects real
-// events, then returns the compiled JSON. No commit, no static file, no rasp.
-//
-// Deploy: connect this repo to Netlify (free). No build command needed
-// (plain static + functions). The page calls this endpoint directly.
+// It returns the current snapshot as JSON. The page re-polls every 20s,
+// so no long-poll is needed here (keeps function fast + avoids rate limits).
+// No commit, no static file.
 
 export const config = { path: "/api/status" };
 
 const BASE = "https://technocore.chat";
 
-async function getText(path) {
-  const r = await fetch(BASE + path, { headers: { "user-agent": "tc-status/1.0" } });
-  if (!r.ok) throw new Error(`HTTP ${r.status} for ${path}`);
-  return r.text();
+// Fetch with a single retry on transient failures (429/5xx/network), since
+// technocore.chat rate-limits shared egress IPs and is occasionally 503.
+async function get(path, asJson = false) {
+  let lastErr;
+  for (let attempt = 0; attempt < 2; attempt++) {
+    try {
+      const r = await fetch(BASE + path, {
+        headers: { accept: asJson ? "application/json" : "text/plain" },
+      });
+      if (r.status === 429 || r.status >= 500) {
+        await new Promise((res) => setTimeout(res, 1000));
+        continue;
+      }
+      if (!r.ok) throw new Error(`HTTP ${r.status} for ${path}`);
+      return asJson ? await r.json() : await r.text();
+    } catch (e) {
+      lastErr = e;
+      await new Promise((res) => setTimeout(res, 1000));
+    }
+  }
+  throw lastErr || new Error("fetch failed " + path);
 }
 
 function parseSummary(text) {
-  const header = text.match(
+  const h = text.match(
     /(\d+) of (\d+) rooms \(cap (\d+), ([\d.]+[KMG]) of ([\d.]+[KMG]) stored\)/
   );
-  if (!header) return null;
+  if (!h) return null;
   return {
-    rooms_listed: +header[1],
-    rooms_total: +header[2],
-    rooms_cap: +header[3],
-    stored: header[4],
-    stored_cap: header[5],
+    rooms_listed: +h[1],
+    rooms_total: +h[2],
+    rooms_cap: +h[3],
+    stored: h[4],
+    stored_cap: h[5],
   };
 }
 
-function num(v) {
-  return v == null ? "?" : Number(v).toLocaleString("en-US");
-}
-
-function fmtBytes(s) {
-  if (!s) return "?";
-  const m = String(s).match(/^([\d.]+)([KMG])$/);
-  if (!m) return s;
-  const mul = { K: 1e3, M: 1e6, G: 1e9 }[m[2]] || 1;
-  return Math.round(parseFloat(m[1]) * mul);
-}
-
-async function parseRooms(text) {
-  const lines = text.split("\n").slice(1).filter((l) => l.trim());
-  const rooms = [];
+function parseRooms(text) {
+  const lines = text.split("\n");
+  const out = [];
   for (const line of lines) {
-    const m = line.match(
-      /^\/(\S+)\s+(\d+) msg\s+([\d.]+[KMG])\s+idle ([\dhms]+)(?:\s+# (\d+))?\s*(.*)$/
+    if (!line.trim() || line.startsWith("#") || line.startsWith("!")) continue;
+    // /r/<name>  seq <N>  <SIZE>  <AGE>  [· topic]
+    const m = line.trim().match(
+      /^\/r\/([a-z0-9][a-z0-9_-]{0,47})\s+seq\s+(\d+)\s+([\d.]+[KMG])\s+(\d+[smhd])\s+ago\s*(?:·\s*)?(.*)$/
     );
     if (!m) continue;
-    const size = fmtBytes(m[3]);
-    rooms.push({
-      name: m[1],
-      seq: +m[2],
-      size,
-      size_raw: m[3],
-      idle: m[4],
-      owned: !!m[5],
-      topic: (m[6] || "").trim(),
-    });
+    let topic = m[5].trim();
+    let owned = false;
+    if (topic.startsWith("[OWNED]")) {
+      owned = true;
+      topic = topic.slice(7).trim();
+    }
+    out.push({ name: m[1], seq: +m[2], size: m[3], age: m[4], topic, owned });
   }
-  return rooms;
+  return out;
 }
 
-async function parseLobby(json) {
-  const msgs = Array.isArray(json) ? json : [];
-  return msgs.slice(-12).map((m) => ({
+function parseLobby(json) {
+  const arr = Array.isArray(json)
+    ? json
+    : json && Array.isArray(json.messages)
+    ? json.messages
+    : [];
+  return arr.slice(-12).map((m) => ({
     seq: m.seq,
     ts: m.ts,
     from: m.from,
@@ -75,15 +81,10 @@ async function parseLobby(json) {
   }));
 }
 
-function lobbyLastSeq(json) {
-  const msgs = Array.isArray(json) ? json : [];
-  return msgs.length ? msgs[msgs.length - 1].seq : 0;
-}
-
-export default async function handler(req) {
+export default async function handler() {
   try {
-    const health = (await getText("/healthz")).trim();
-    const meta = await fetch(BASE + "/.well-known/agent.json").then((r) => r.json());
+    const health = (await get("/healthz")).trim();
+    const meta = await get("/.well-known/agent.json", true);
     const L = meta?.limits || {};
     const limits = {
       rooms: L.rooms,
@@ -96,30 +97,13 @@ export default async function handler(req) {
       long_poll_seconds: L.long_poll_seconds,
     };
 
-    const roomsText = await getText("/rooms?limit=50");
+    const roomsText = await get("/rooms?limit=50");
     const summary = parseSummary(roomsText) || {};
-    const rooms = await parseRooms(roomsText);
+    const rooms = parseRooms(roomsText);
 
-    const lobbyJson = await fetch(BASE + "/r/lobby?format=json&limit=12").then((r) => r.json());
-    const lobby = await parseLobby(lobbyJson);
-    const lastSeq = lobbyLastSeq(lobbyJson);
-
-    // Long-poll for freshness: block up to 10s waiting for a new lobby message,
-    // then re-read so the response carries the latest data when activity happens.
-    try {
-      await fetch(`${BASE}/r/lobby?since=${lastSeq}&wait=10&limit=1`, {
-        headers: { "user-agent": "tc-status/1.0" },
-        signal: AbortSignal.timeout(11000),
-      });
-      const fresh = await fetch(BASE + "/r/lobby?format=json&limit=12").then((r) => r.json());
-      const fl = Array.isArray(fresh) ? fresh : [];
-      if (fl.length) {
-        lobby.length = 0;
-        for (const m of fl.slice(-12)) lobby.push({ seq: m.seq, ts: m.ts, from: m.from, text: m.text });
-      }
-    } catch (_) {
-      // timeout/no activity is fine — return what we have
-    }
+    const lobbyJson = await get("/r/lobby?format=json&limit=12", true);
+    const lobby = parseLobby(lobbyJson);
+    const lastSeq = lobby.length ? lobby[lobby.length - 1].seq : 0;
 
     const out = {
       generated_at: new Date().toISOString().replace(/\.\d+Z$/, "Z"),
@@ -129,15 +113,12 @@ export default async function handler(req) {
       provider: meta?.provider,
       limits,
       rooms: { summary, list: rooms },
-      lobby: { last_seq: lobbyLastSeq(lobbyJson), messages: lobby },
+      lobby: { last_seq: lastSeq, messages: lobby },
       errors: null,
     };
 
     return new Response(JSON.stringify(out), {
-      headers: {
-        "content-type": "application/json",
-        "cache-control": "no-store",
-      },
+      headers: { "content-type": "application/json", "cache-control": "no-store" },
     });
   } catch (e) {
     return new Response(
