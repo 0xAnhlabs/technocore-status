@@ -1,25 +1,22 @@
-// Netlify Function: DID Inspector.
+// Netlify Function: DID Inspector (identity only).
 // Input: ?did=did:key:...
-// Output: JSON with identity note (verified?) + lobby message stats for that DID.
-// NOTE: technocore.chat has NO global DID index, so we can only inspect what is
-// visible in /r/lobby (a ring buffer). This is room-scoped, not system-wide.
+// Output: JSON with fingerprint, verified (note published?), and the note text.
+// No lobby scan — KISS, fast, no rate-limit risk.
 
 export const config = { path: "/api/did" };
 
 const BASE = "https://technocore.chat";
 
-async function get(path, asJson = false) {
+async function get(path) {
   for (let attempt = 0; attempt < 2; attempt++) {
     try {
-      const r = await fetch(BASE + path, {
-        headers: { accept: asJson ? "application/json" : "text/plain" },
-      });
+      const r = await fetch(BASE + path, { headers: { accept: "text/plain" } });
       if (r.status === 429 || r.status >= 500) {
         await new Promise((res) => setTimeout(res, 1000));
         continue;
       }
       if (!r.ok) throw new Error(`HTTP ${r.status} for ${path}`);
-      return asJson ? await r.json() : await r.text();
+      return await r.text();
     } catch (e) {
       if (attempt === 1) throw e;
       await new Promise((res) => setTimeout(res, 1000));
@@ -29,8 +26,6 @@ async function get(path, asJson = false) {
 }
 
 function fingerprint(did) {
-  // SHA-256 of the DID string, lowercase hex, first 16 chars.
-  // Uses Web Crypto (available in Node 18+ edge runtime via globalThis.crypto).
   return crypto.subtle
     .digest("SHA-256", new TextEncoder().encode(did))
     .then((buf) => {
@@ -57,8 +52,6 @@ export default async function handler(req) {
     let noteError = null;
     try {
       const raw = await get(`/kv/did/${fp}`);
-      // /kv/did/<fp> returns the raw note; technocore prepends an
-      // "!! UNTRUSTED CONTENT" warning line we strip for display.
       if (raw && !/not found/i.test(raw)) {
         note = raw
           .split("\n")
@@ -70,28 +63,12 @@ export default async function handler(req) {
       noteError = String(e.message || e);
     }
 
-    // Scan lobby (ring buffer, up to 200 recent messages)
-    const lobby = await get("/r/lobby?format=json&limit=200", true);
-    const msgs = Array.isArray(lobby)
-      ? lobby
-      : lobby && Array.isArray(lobby.messages)
-      ? lobby.messages
-      : [];
-    const mine = msgs
-      .filter((m) => m.from === did)
-      .map((m) => ({ seq: m.seq, ts: m.ts, text: m.text }));
-
     const out = {
       did,
       fingerprint: fp,
       verified: note !== null,
       note,
       note_error: noteError,
-      lobby: {
-        scanned: msgs.length,
-        count: mine.length,
-        messages: mine.slice(-20),
-      },
       errors: null,
     };
 

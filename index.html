@@ -254,6 +254,11 @@ function render(d){
   $("content").innerHTML = h;
   window.__rooms = rooms;
   renderRoomRows(rooms, false);
+  // Preserve DID Inspector result across auto-poll re-render
+  if (window.__didResult) {
+    const box = document.getElementById("didresult");
+    if (box) box.innerHTML = window.__didResult;
+  }
 }
 
 function kv(k,v){ return `<div class="kv"><span class="k">${esc(k)}</span><span class="v">${v}</span></div>`; }
@@ -298,12 +303,7 @@ function inspectDid() {
         ? '<span class="pill ok">yes (note published)</span>'
         : '<span class="pill warn">no note found</span>');
       if (j.note) out += kv("DID note", '<div class="txt">' + esc(j.note) + '</div>');
-      out += kv("Lobby messages", num(j.lobby.count) + " of " + num(j.lobby.scanned) + " scanned");
-      if (j.lobby.messages.length) {
-        out += '<div style="margin-top:.4rem"></div>';
-        for (const m of j.lobby.messages.slice().reverse())
-          out += '<div class="msg"><div class="meta">[' + num(m.seq) + '] ' + fmtTs(m.ts) + '</div><div class="txt">' + esc(m.text) + '</div></div>';
-      }
+      window.__didResult = out; // preserve across auto-poll re-render
       box.innerHTML = out;
     })
     .catch((e) => { box.innerHTML = '<div class="err">' + esc(String(e)) + '</div>'; });
