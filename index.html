@@ -150,7 +150,8 @@ function gauge(ratio, label, valText, color){
 }
 
 function barRows(rooms, topN){
-  const sorted = rooms.slice().sort((a,b)=>(toBytes(b.size)||0)-(toBytes(a.size)||0)).slice(0, topN);
+  const arr = Array.isArray(rooms)?rooms:[];
+  const sorted = arr.slice().sort((a,b)=>(toBytes(b.size)||0)-(toBytes(a.size)||0)).slice(0, topN);
   const max = Math.max(1, ...sorted.map(r=>toBytes(r.size)||0));
   return sorted.map(r=>{
     const pct = ((toBytes(r.size)||0)/max*100).toFixed(1);
@@ -213,12 +214,12 @@ function render(d){
     </div>
     <div class="panel col-8">
       <h2>Top Rooms by Size</h2>
-      <div class="bars">${barRows(d.rooms?d.rooms.rooms:[], 10)}</div>
+      <div class="bars">${barRows(d.rooms&&d.rooms.list?d.rooms.list:[], 10)}</div>
     </div>
   </div>`;
 
   // ---- row 3: room list (searchable) ----
-  const rooms = (d.rooms&&d.rooms.rooms)||[];
+  const rooms = (d.rooms&&d.rooms.list)||[];
   h += `<div class="panel col-12" style="margin-bottom:.8rem">
     <h2>Public Rooms (${rooms.length} shown)</h2>
     <div class="toolbar">
