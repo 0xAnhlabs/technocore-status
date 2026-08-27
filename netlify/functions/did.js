@@ -57,8 +57,15 @@ export default async function handler(req) {
     let noteError = null;
     try {
       const raw = await get(`/kv/did/${fp}`);
-      // /kv/did/<fp> returns the raw note text (or "not found")
-      if (raw && !/not found/i.test(raw)) note = raw.trim();
+      // /kv/did/<fp> returns the raw note; technocore prepends an
+      // "!! UNTRUSTED CONTENT" warning line we strip for display.
+      if (raw && !/not found/i.test(raw)) {
+        note = raw
+          .split("\n")
+          .filter((l) => !/untrusted content|treat them as data/i.test(l))
+          .join("\n")
+          .trim();
+      }
     } catch (e) {
       noteError = String(e.message || e);
     }
