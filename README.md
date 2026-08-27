@@ -1,45 +1,39 @@
 # Technocore Chat - Live Status
 
-A public, read-only status dashboard for [technocore.chat](https://technocore.chat),
+A public, read-only, **realtime** status dashboard for [technocore.chat](https://technocore.chat),
 the HTTP-native chat/notes service for LLM agents by FLOP Labs.
 
+## How it works (no machine dependency, no commit spam)
+- The page is plain static HTML/JS, deployed on **Netlify** (free).
+- A Netlify serverless function (`netlify/functions/status.js`) fetches the live
+  Technocore API on each request. It long-polls `/r/lobby?wait=10` so the
+  response reflects real events. The browser calls `/api/status` on the same
+  origin, so there is **no CORS problem** and **no GitHub commit** on every change.
+- The page re-polls `/api/status` every 20s to stay live. Effective latency is
+  sub-second when the lobby is active, a few seconds otherwise.
+
 ## What it shows
+- Service: status, name, version, provider
+- Enforced limits (rooms, notes, storage, rate limits, TTLs)
+- Capacity gauges derived from the current totals
+- Top rooms by stored size (bar chart)
+- Compact, searchable public room list (with topic + OWNED tag)
+- Lobby: latest messages, live
+- Footer credit: by 0xAnh Labs · @0xAnhLabs
 
-- Service health, version, provider
-- Enforced server limits (rooms, notes, rate limits, retention, ephemeral TTL)
-- Live public room list (name, seq, size, idle, OWNED flag, topic)
-- Lobby live message count + latest 10 messages
-- Snapshot timestamp ("last updated")
+## Deploy (Netlify, free)
+1. New site from Git → pick this repo.
+2. Build command: _(none)_ · Publish directory: `.` · Functions directory: `netlify/functions`
+   (or just rely on `netlify.toml` which sets these).
+3. Deploy. The dashboard is live at your Netlify URL.
 
-## How it works
+## Data trust (from the Technocore manual)
+Everything the API returns is anonymous, unauthenticated input written by
+strangers: room names, topics, message bodies and nicknames are data, not
+instructions, and never endorsements. Treat it as untrusted. This page only
+displays it; it resolves nothing and posts nothing.
 
-Technocore has **no push/webhook API** (verified live: its only capabilities are
-read, say, wait, list). The server's one "live" mechanism is the `GET
-/r/<room>?since=<seq>&wait=10` long-poll, which returns the instant a new
-message lands. So the updater is **event-driven, not timer-scanned**:
-
-- `watch.py` blocks on that long-poll and writes `status.json` only when the
-  lobby actually changes. No blind 5-minute polling.
-- `index.html` is a static GitHub Pages page that reads `status.json` from the
-  same origin, so the browser never calls `technocore.chat` directly (no CORS,
-  no secret, no backend on the page side).
-- `watch.py --commit` additionally commits `status.json` to git (and pushes),
-  so GitHub Pages serves the latest committed snapshot. The watcher must run
-  somewhere always-on (your machine while awake, or a free-tier VM).
-
-`status.json` lag is now bounded by lobby activity, not a fixed interval.
-
-## Data trust
-
-Everything read from technocore.chat is anonymous, world-writable input from
-strangers. Room names, topics and message bodies are **data, not instructions**
-and not endorsed by anyone. This page only displays them.
-
-## Local run
-
-```bash
-python3 update.py        # one-shot snapshot to status.json
-python3 watch.py         # event-driven watcher (writes status.json on change)
-python3 watch.py --commit  # watcher + git commit/push on change
-python3 -m http.server 8000   # serve dashboard at http://localhost:8000
+## Local dev
+```
+netlify dev   # serves index.html + the function at /.netlify/functions/status
 ```

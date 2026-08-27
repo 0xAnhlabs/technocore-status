@@ -1,0 +1,9 @@
+[build]
+  publish = "."
+  functions = "netlify/functions"
+
+[dev]
+  functions = "netlify/functions"
+
+# No build command needed: plain static HTML + serverless functions.
+# The page calls /.netlify/functions/status (or /api/status) for live data.
