@@ -4,13 +4,14 @@
 // It returns the current snapshot as JSON. The page re-polls every 20s,
 // so no long-poll is needed here (keeps function fast + avoids rate limits).
 // No commit, no static file.
+//
+// Fallback behavior: technocore.chat may return 503 or rate-limit shared IPs.
+// This function now degrades gracefully instead of failing the whole page.
 
 export const config = { path: "/api/status" };
 
 const BASE = "https://technocore.chat";
 
-// Fetch with a single retry on transient failures (429/5xx/network), since
-// technocore.chat rate-limits shared egress IPs and is occasionally 503.
 async function get(path, asJson = false) {
   let lastErr;
   for (let attempt = 0; attempt < 2; attempt++) {
@@ -51,9 +52,8 @@ function parseRooms(text) {
   const out = [];
   for (const line of lines) {
     if (!line.trim() || line.startsWith("#") || line.startsWith("!")) continue;
-    // /r/<name>  seq <N>  <SIZE>  <AGE>  [· topic]
     const m = line.trim().match(
-      /^\/r\/([a-z0-9][a-z0-9_-]{0,47})\s+seq\s+(\d+)\s+([\d.]+[KMG])\s+(\d+[smhd])\s+ago\s*(?:·\s*)?(.*)$/
+      /^\/([a-z0-9][a-z0-9_-]{0,47})\s+seq\s+(\d+)\s+([\d.]+[KMG])\s+(\d+[smhd])\s+ago\s*(?:·\s*)?(.*)$/
     );
     if (!m) continue;
     let topic = m[5].trim();
@@ -65,18 +65,6 @@ function parseRooms(text) {
     out.push({ name: m[1], seq: +m[2], size: m[3], age: m[4], topic, owned });
   }
   return out;
-}
-
-function toBytes(s) {
-  if (typeof s !== "string") return null;
-  const m = String(s).trim().match(/^([\d.]+)\s*([KMG])?/i);
-  if (!m) return null;
-  let v = parseFloat(m[1]);
-  const u = (m[2] || "").toUpperCase();
-  if (u === "K") v *= 1024;
-  else if (u === "M") v *= 1048576;
-  else if (u === "G") v *= 1073741824;
-  return v;
 }
 
 function parseLobby(json) {
@@ -93,15 +81,89 @@ function parseLobby(json) {
   }));
 }
 
+function hourFromTs(ts) {
+  if (!ts) return null;
+  const m = String(ts).match(/T(\d{2}):/);
+  return m ? +m[1] : null;
+}
+
+function buildActivityHeatmap(messages) {
+  const buckets = new Array(24).fill(0);
+  let lastHour = -1;
+  for (const m of messages) {
+    const h = hourFromTs(m.ts);
+    if (h === null) continue;
+    buckets[h] += 1;
+    lastHour = h;
+  }
+  const max = Math.max(1, ...buckets);
+  const now = new Date();
+  const currentHour = now.getUTCHours();
+  return {
+    buckets: buckets.map((count, h) => ({
+      hour: h,
+      count,
+      pct: (count / max) * 100,
+      isNow: h === currentHour,
+    })),
+    max,
+    lastHour,
+  };
+}
+
+function parseOfferLines(text) {
+  const lines = String(text || "").split("\n");
+  const out = [];
+  for (const raw of lines) {
+    const line = raw.trim();
+    if (!line.startsWith("tclk1 ")) continue;
+    const json = line.slice(6).trim();
+    let obj;
+    try { obj = JSON.parse(json); } catch { continue; }
+    if (obj && obj.type === "offer") out.push(obj);
+  }
+  return out.slice(-50);
+}
+
 export default async function handler() {
   try {
-    const health = (await get("/healthz")).trim();
-    const meta = await get("/.well-known/agent.json", true);
+    const out = {
+      generated_at: new Date().toISOString().replace(/\.\d+Z$/, "Z"),
+      health: null,
+      service: {},
+      limits: {},
+      rooms: { summary: {}, list: [] },
+      lobby: { count: 0, first_seq: 0, last_seq: 0, messages: [] },
+      activity_heatmap: null,
+      errors: [],
+    };
+
+    // healthz is best-effort
+    try {
+      out.health = (await get("/healthz")).trim();
+    } catch (e) {
+      out.errors.push("healthz unavailable: " + String(e && e.message ? e.message : e));
+    }
+
+    // agent metadata is best-effort
+    let meta = {};
+    try {
+      meta = await get("/.well-known/agent.json", true);
+    } catch (e) {
+      out.errors.push("agent.json unavailable: " + String(e && e.message ? e.message : e));
+      // Try to proceed with defaults
+    }
     const L = meta?.limits || {};
-    const limits = {
+    out.service = {
+      name: meta?.name,
+      version: meta?.version,
+      provider: meta?.provider?.name || (meta?.provider && meta.provider.url ? meta.provider.url : ""),
+    };
+    out.limits = {
       rooms: L.rooms,
       notes: L.notes,
-      room_bytes_total: L.room_bytes_total,
+      new_rooms_per_day_per_ip: L.new_rooms_per_day_per_ip,
+      room_ring_bytes: L.room_ring_bytes,
       reads_per_minute_per_ip: L.reads_per_minute_per_ip,
       writes_per_minute_per_ip: L.writes_per_minute_per_ip,
       ephemeral_ttl_seconds: L.ephemeral_ttl_seconds,
@@ -109,42 +171,41 @@ export default async function handler() {
       long_poll_seconds: L.long_poll_seconds,
     };
 
-    const roomsText = await get("/rooms?limit=50");
-    const summary = parseSummary(roomsText) || {};
-    const rooms = parseRooms(roomsText);
+    // rooms list is best-effort
+    let roomsText = "";
+    try {
+      roomsText = await get("/rooms?limit=50");
+      out.rooms.summary = parseSummary(roomsText) || {};
+      out.rooms.list = parseRooms(roomsText);
+    } catch (e) {
+      out.errors.push("rooms unavailable: " + String(e && e.message ? e.message : e));
+    }
 
-    const lobbyJson = await get("/r/lobby?format=json&limit=12", true);
-    const lobby = parseLobby(lobbyJson);
-    const lastSeq = lobby.length ? lobby[lobby.length - 1].seq : 0;
-
-    const out = {
-      generated_at: new Date().toISOString().replace(/\.\d+Z$/, "Z"),
-      health,
-      service: {
-        name: meta?.name,
-        version: meta?.version,
-        provider: meta?.provider?.name || (meta?.provider && meta.provider.url ? meta.provider.url : ""),
-      },
-      limits: {
-        rooms: L.rooms,
-        notes: L.notes,
-        new_rooms_per_day_per_ip: L.new_rooms_per_day_per_ip,
-        room_ring_bytes: L.room_ring_bytes,
-        reads_per_minute_per_ip: L.reads_per_minute_per_ip,
-        writes_per_minute_per_ip: L.writes_per_minute_per_ip,
-        ephemeral_ttl_seconds: L.ephemeral_ttl_seconds,
-        retention_seconds: L.retention_seconds,
-        long_poll_seconds: L.long_poll_seconds,
-      },
-      rooms: { summary, list: rooms },
-      lobby: {
+    // lobby is best-effort
+    let lobbyJson = [];
+    let offerText = "";
+    try {
+      lobbyJson = await get("/r/lobby?format=json&limit=200", true);
+      const lobby = parseLobby(lobbyJson);
+      out.lobby = {
         count: lobby.length,
         first_seq: lobby.length ? lobby[0].seq : 0,
-        last_seq: lastSeq,
+        last_seq: lobby.length ? lobby[lobby.length - 1].seq : 0,
         messages: lobby,
-      },
-      errors: null,
-    };
+      };
+      out.activity_heatmap = buildActivityHeatmap(lobby);
+    } catch (e) {
+      out.errors.push("lobby unavailable: " + String(e && e.message ? e.message : e));
+    }
+
+    // tclk offers is best-effort
+    try {
+      offerText = await get("/r/tclk-offers");
+      out.tclk_offers = parseOfferLines(offerText);
+    } catch (e) {
+      out.errors.push("tclk-offers unavailable: " + String(e && e.message ? e.message : e));
+      out.tclk_offers = [];
+    }
 
     return new Response(JSON.stringify(out), {
       headers: {
@@ -154,8 +215,18 @@ export default async function handler() {
     });
   } catch (e) {
     return new Response(
-      JSON.stringify({ error: String(e && e.message ? e.message : e) }),
-      { status: 502, headers: { "content-type": "application/json" } }
+      JSON.stringify({
+        error: String(e && e.message ? e.message : e),
+        generated_at: new Date().toISOString().replace(/\.\d+Z$/, "Z"),
+        health: null,
+        service: {},
+        limits: {},
+        rooms: { summary: {}, list: [] },
+        lobby: { count: 0, first_seq: 0, last_seq: 0, messages: [] },
+        activity_heatmap: null,
+        errors: ["fatal: " + String(e && e.message ? e.message : e)],
+      }),
+      { status: 200, headers: { "content-type": "application/json", "cache-control": "no-store" } }
     );
   }
 }
