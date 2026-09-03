@@ -48,21 +48,25 @@ function parseSummary(text) {
 }
 
 function parseRooms(text) {
-  const lines = text.split("\n");
+  const lines = String(text || "").split("\n");
   const out = [];
-  for (const line of lines) {
-    if (!line.trim() || line.startsWith("#") || line.startsWith("!")) continue;
-    const m = line.trim().match(
-      /^\/([a-z0-9][a-z0-9_-]{0,47})\s+seq\s+(\d+)\s+([\d.]+[KMG])\s+(\d+[smhd])\s+ago\s*(?:·\s*)?(.*)$/
-    );
-    if (!m) continue;
-    let topic = m[5].trim();
+  for (const raw of lines) {
+    const line = raw.trim();
+    if (!line || line.startsWith("#") || line.startsWith("!")) continue;
+    const seqIdx = line.indexOf(" seq ");
+    if (seqIdx < 0) continue;
+    const name = line.slice(0, seqIdx).replace(/^\/+|\/$/g, "").trim();
+    if (!name) continue;
+    const tail = line.slice(seqIdx + 5);
+    const tailMatch = tail.match(/^(\d+)\s+([\d.]+[KMG])\s+(\d+[smhd])\s+ago\s*(?:·\s*)?(.*)$/);
+    if (!tailMatch) continue;
+    let topic = tailMatch[4].trim();
     let owned = false;
     if (topic.startsWith("[OWNED]")) {
       owned = true;
       topic = topic.slice(7).trim();
     }
-    out.push({ name: m[1], seq: +m[2], size: m[3], age: m[4], topic, owned });
+    out.push({ name, seq: +tailMatch[1], size: tailMatch[2], age: tailMatch[3], topic, owned });
   }
   return out;
 }
