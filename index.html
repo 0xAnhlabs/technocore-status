@@ -109,15 +109,24 @@
   footer a { color: var(--accent); text-decoration: none; }
 
   /* tclk offer board */
-  .offer-grid { display: grid; grid-template-columns: repeat(12, 1fr); gap: .6rem; }
-  .offer-card { background: var(--panel-2); border: 1px solid var(--border); border-radius: 10px; padding: .7rem .9rem; }
-  .offer-card h3 { margin: 0 0 .35rem; font-size: .78rem; color: var(--accent); word-break: break-all; }
-  .offer-card .meta { color: var(--muted); font-size: .72rem; }
-  .pill-rail { display: inline-block; padding: .1rem .4rem; border-radius: 999px; font-size: .68rem; font-weight: 600; background: rgba(88,166,255,.12); color: var(--accent); }
-  .pill-expiry { display: inline-block; padding: .1rem .4rem; border-radius: 999px; font-size: .68rem; font-weight: 600; }
-  .pill-expiry.ok { background: rgba(63,185,80,.12); color: var(--ok); }
-  .pill-expiry.warn { background: rgba(210,153,34,.12); color: var(--warn); }
-  .pill-expiry.bad { background: rgba(248,81,73,.12); color: var(--bad); }
+  .offer-board { display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: .7rem; }
+  .offer-card { background: var(--panel-2); border: 1px solid var(--border); border-left: 3px solid var(--accent); border-radius: 10px; padding: .8rem .9rem; transition: transform .05s; }
+  .offer-card:hover { transform: translateY(-1px); }
+  .offer-card.status-open { border-left-color: var(--ok); }
+  .offer-card.status-expiring { border-left-color: var(--warn); }
+  .offer-card.status-expired { border-left-color: var(--bad); opacity: .85; }
+  .offer-header { display: flex; justify-content: space-between; align-items: flex-start; gap: .5rem; margin-bottom: .5rem; }
+  .offer-card h3 { margin: 0; font-size: .78rem; color: var(--fg); word-break: break-all; line-height: 1.35; }
+  .offer-badge { font-size: .62rem; font-weight: 700; text-transform: uppercase; letter-spacing: .08em; padding: .15rem .45rem; border-radius: 999px; white-space: nowrap; flex-shrink: 0; }
+  .offer-badge.open { background: rgba(63,185,80,.15); color: var(--ok); }
+  .offer-badge.expiring { background: rgba(210,153,34,.15); color: var(--warn); }
+  .offer-badge.expired { background: rgba(248,81,73,.15); color: var(--bad); }
+  .offer-meta { color: var(--muted); font-size: .72rem; line-height: 1.55; }
+  .offer-meta strong { color: var(--fg); font-weight: 600; }
+  .offer-footer { display: flex; justify-content: space-between; align-items: center; gap: .5rem; margin-top: .55rem; padding-top: .5rem; border-top: 1px dashed var(--border); }
+  .offer-time { color: var(--muted); font-size: .68rem; }
+  .offer-action { font: inherit; font-size: .68rem; font-weight: 600; background: var(--panel); border: 1px solid var(--border); color: var(--accent); border-radius: 6px; padding: .22rem .5rem; cursor: pointer; text-decoration: none; }
+  .offer-action:hover { border-color: var(--accent); }
 </style>
 </head>
 <body>
@@ -193,21 +202,29 @@ function renderOfferCards(offers){
     const claimBy = o.claimByMs ? new Date(+o.claimByMs).toISOString() : null;
     const now = Date.now();
     const expiryState = expires
-      ? (+o.expiresMs - now < 0 ? 'bad' : +o.expiresMs - now < 3600000 ? 'warn' : 'ok')
-      : 'ok';
+      ? (+o.expiresMs - now < 0 ? 'expired' : +o.expiresMs - now < 3600000 ? 'expiring' : 'open')
+      : 'open';
     const expiryText = expires ? fmtTs(expires) : '?';
     const claimText = claimBy ? fmtTs(claimBy) : '?';
     const rails = Array.isArray(o.rails) ? o.rails.map(r => `<span class="pill-rail">${esc(r)}</span>`).join(' ') : '';
-    const idShort = o.id ? esc(o.id.length > 24 ? o.id.slice(0,24)+'…' : o.id) : '?';
-    return `<div class="offer-card">
-      <h3>${idShort}</h3>
-      <div class="meta">${esc(o.asset||'')} ${num(o.amount)} · ${esc(o.role||'')} · lock ${esc(o.lock||'')}</div>
-      <div class="meta" style="margin-top:.35rem">${rails}</div>
-      <div class="meta" style="margin-top:.35rem">
-        claim by <span class="pill-expiry ${+o.claimByMs - now < 0 ? 'bad' : 'ok'}">${claimText}</span>
-        &middot; expires <span class="pill-expiry ${expiryState}">${expiryText}</span>
+    const idShort = o.id ? esc(o.id.length > 28 ? o.id.slice(0,28)+'…' : o.id) : '?';
+    const acceptUrl = `https://technocore.chat/r/tclk-offers?offer=${encodeURIComponent(o.id || '')}`;
+    const statusLabel = expiryState === 'open' ? 'Open' : expiryState === 'expiring' ? 'Expiring' : 'Expired';
+    return `<div class="offer-card status-${expiryState}">
+      <div class="offer-header">
+        <h3>${idShort}</h3>
+        <span class="offer-badge ${expiryState}">${statusLabel}</span>
       </div>
-      ${o.job ? `<div class="meta" style="margin-top:.35rem">job ${esc(o.job.proto||'')} ${esc(o.job.id||'')}</div>` : ''}
+      <div class="offer-meta"><strong>${esc(o.asset||'')}</strong> ${num(o.amount)} · <strong>${esc(o.role||'')}</strong> · lock <strong>${esc(o.lock||'')}</strong></div>
+      <div class="offer-meta" style="margin-top:.3rem">${rails}</div>
+      <div class="offer-meta" style="margin-top:.3rem">
+        claim by <strong>${claimText}</strong> · expires <strong>${expiryText}</strong>
+      </div>
+      ${o.job ? `<div class="offer-meta" style="margin-top:.3rem">job <strong>${esc(o.job.proto||'')}</strong> ${esc(o.job.id||'')}</div>` : ''}
+      <div class="offer-footer">
+        <span class="offer-time">${o.contract ? 'contract ' + esc(o.contract.length > 20 ? o.contract.slice(0,20)+'…' : o.contract) : ''}</span>
+        <a class="offer-action" href="${acceptUrl}" target="_blank" rel="noopener">Open room</a>
+      </div>
     </div>`;
   }).join("");
 }
@@ -285,7 +302,7 @@ function render(d){
     <div class="toolbar">
       <input id="offerfilter" placeholder="filter offer id / rails / job…" oninput="filterOffers()" />
     </div>
-    <div id="offerboard">${renderOfferCards(offers)}</div>
+    <div id="offerboard" class="offer-board">${renderOfferCards(offers)}</div>
   </div>`;
 
   // ---- row 4: room list (searchable) ----
