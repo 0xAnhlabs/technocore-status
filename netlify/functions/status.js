@@ -171,8 +171,19 @@ export default async function handler() {
         last_seq: lobby.length ? lobby[lobby.length - 1].seq : 0,
         messages: lobby,
       };
+      if (lobby.length >= 2) {
+        const first = lobby[0];
+        const last = lobby[lobby.length - 1];
+        const spanSec = (new Date(last.ts) - new Date(first.ts)) / 1000;
+        out.lobby_pulse_rate = spanSec > 0 ? (lobby.length / (spanSec / 60)).toFixed(1) : String(lobby.length);
+      } else if (lobby.length === 1) {
+        out.lobby_pulse_rate = "1.0";
+      } else {
+        out.lobby_pulse_rate = "0.0";
+      }
     } catch (e) {
       out.errors.push("lobby unavailable: " + String(e && e.message ? e.message : e));
+      out.lobby_pulse_rate = null;
     }
 
     // tclk offers is best-effort

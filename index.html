@@ -31,6 +31,9 @@
   .sub a { color: var(--accent); text-decoration: none; }
   .sub a:hover { text-decoration: underline; }
   #updated { color: var(--muted); font-size: .78rem; margin-bottom: 1rem; }
+  .live-dot { display: inline-block; width: 8px; height: 8px; border-radius: 50%; background: var(--ok); margin-right: 6px; animation: pulse 2s infinite; }
+  @keyframes pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.4; } }
+  .pulse-rate { color: var(--fg); font-weight: 600; }
 
   .grid { display: grid; grid-template-columns: repeat(12, 1fr); gap: .8rem; }
   .col-4 { grid-column: span 4; } .col-6 { grid-column: span 6; }
@@ -46,6 +49,8 @@
 
   .panel { background: var(--panel); border: 1px solid var(--border); border-radius: 10px; padding: .85rem .9rem; }
   .panel h2 { font-size: .72rem; text-transform: uppercase; letter-spacing: .08em; color: var(--muted); margin: 0 0 .7rem; font-weight: 600; }
+  .panel.accent { border-left: 3px solid var(--accent); }
+  .panel.accent-ok { border-left: 3px solid var(--ok); }
 
   /* gauges */
   .gauges { display: flex; gap: .6rem; justify-content: space-around; }
@@ -217,7 +222,8 @@ function filterOffers(){
 }
 
 function render(d){
-  $("updated").textContent = "Last updated: " + fmtTs(d.generated_at);
+  const pulseHtml = d.generated_at ? '<span class="live-dot" title="Live"></span>' : '';
+  $("updated").innerHTML = `${pulseHtml} Last updated: ${fmtTs(d.generated_at)}` + (d.lobby_pulse_rate != null ? ` · Lobby pulse: <span class="pulse-rate">${d.lobby_pulse_rate}</span> msg/min` : "");
   if(d.error){ $("content").innerHTML = `<div class="err">Snapshot fetch failed: ${esc(d.error)}</div>`; return; }
 
   let h = "";
