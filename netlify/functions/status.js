@@ -116,11 +116,15 @@ function parseOfferLines(text) {
   const out = [];
   for (const raw of lines) {
     const line = raw.trim();
-    if (!line.startsWith("tclk1 ")) continue;
-    const json = line.slice(6).trim();
+    if (!line.includes(" tclk1 ")) continue;
+    const json = line.split(" tclk1 ", 2)[1] || "";
+    if (!json.trim()) continue;
     let obj;
     try { obj = JSON.parse(json); } catch { continue; }
-    if (obj && obj.type === "offer") out.push(obj);
+    if (!obj || obj.type !== "offer") continue;
+    const offer = Object.assign({}, obj);
+    if (!offer.id && offer.contractId) offer.id = offer.contractId;
+    out.push(offer);
   }
   return out.slice(-50);
 }
