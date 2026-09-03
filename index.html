@@ -98,7 +98,7 @@
   .pill { display: inline-block; padding: .12rem .5rem; border-radius: 999px; font-size: .72rem; font-weight: 600; }
   .pill.ok { background: rgba(63,185,80,.15); color: var(--ok); }
   .pill.bad { background: rgba(248,81,73,.15); color: var(--bad); }
-  .pill.warn { background: rgba(210,153,34,.15); color: var(--warn); }
+  .pill.bad { background: rgba(248,81,73,.15); color: var(--bad); }
   .err { background: rgba(248,81,73,.1); border: 1px solid var(--bad); color: #ffb4ae; border-radius: 8px; padding: .7rem .9rem; margin-top: .8rem; font-size: .8rem; }
   footer { color: var(--muted); font-size: .72rem; margin-top: 1.2rem; text-align: center; }
   footer a { color: var(--accent); text-decoration: none; }
@@ -113,14 +113,6 @@
   .pill-expiry.ok { background: rgba(63,185,80,.12); color: var(--ok); }
   .pill-expiry.warn { background: rgba(210,153,34,.12); color: var(--warn); }
   .pill-expiry.bad { background: rgba(248,81,73,.12); color: var(--bad); }
-
-  /* activity heatmap */
-  .heatmap { display: flex; gap: .35rem; align-items: flex-end; height: 110px; padding-top: .4rem; }
-  .heatmap-bar-wrap { flex: 1; display: flex; flex-direction: column; align-items: center; gap: .25rem; }
-  .heatmap-bar { width: 100%; background: linear-gradient(180deg, var(--bar2), var(--bar)); border-radius: 4px 4px 0 0; min-height: 2px; }
-  .heatmap-label { color: var(--muted); font-size: .62rem; }
-  .heatmap-now { color: var(--ok); font-size: .62rem; font-weight: 700; }
-  .heatmap-today { color: var(--muted); font-size: .72rem; margin-top: .35rem; }
 </style>
 </head>
 <body>
@@ -313,23 +305,7 @@ function render(d){
   } else h += `<p style="color:var(--muted)">No messages.</p>`;
   h += `</div>`;
 
-  // ---- row 5: room activity heatmap ----
-  const heat = d.activity_heatmap || null;
-  if (heat && Array.isArray(heat.buckets)) {
-    const utcNow = new Date().toISOString().slice(0,13).replace("-","").replace("T","Z");
-    const bars = heat.buckets.map(b => {
-      const label = b.isNow ? `<span class="heatmap-now">${String(b.hour).padStart(2,'0')}</span>` : `<span class="heatmap-label">${String(b.hour).padStart(2,'0')}</span>`;
-      const bar = b.count ? `<div class="heatmap-bar" style="height:${Math.max(2, b.pct)}%"></div>` : `<div class="heatmap-bar" style="height:2px;opacity:.4"></div>`;
-      return `<div class="heatmap-bar-wrap">${bar}${label}</div>`;
-    }).join("");
-    h += `<div class="panel col-12" style="margin-bottom:.8rem">
-      <h2>Room Activity &mdash; last lobby snapshot (UTC)</h2>
-      <div class="heatmap">${bars}</div>
-      <div class="heatmap-today">Peak hour: ${String(heat.lastHour ?? 0).padStart(2,'0')} UTC · current hour highlighted</div>
-    </div>`;
-  }
-
-  // ---- row 6: DID Inspector ----
+  // ---- row 5: DID Inspector ----
   h += `<div class="panel col-12" style="margin-bottom:.8rem">
     <h2>DID Inspector</h2>
     <div class="toolbar">

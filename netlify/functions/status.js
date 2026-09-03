@@ -85,36 +85,6 @@ function parseLobby(json) {
   }));
 }
 
-function hourFromTs(ts) {
-  if (!ts) return null;
-  const m = String(ts).match(/T(\d{2}):/);
-  return m ? +m[1] : null;
-}
-
-function buildActivityHeatmap(messages) {
-  const buckets = new Array(24).fill(0);
-  let lastHour = -1;
-  for (const m of messages) {
-    const h = hourFromTs(m.ts);
-    if (h === null) continue;
-    buckets[h] += 1;
-    lastHour = h;
-  }
-  const max = Math.max(1, ...buckets);
-  const now = new Date();
-  const currentHour = now.getUTCHours();
-  return {
-    buckets: buckets.map((count, h) => ({
-      hour: h,
-      count,
-      pct: (count / max) * 100,
-      isNow: h === currentHour,
-    })),
-    max,
-    lastHour,
-  };
-}
-
 function parseOfferLines(text) {
   const lines = String(text || "").split("\n");
   const out = [];
@@ -142,7 +112,7 @@ export default async function handler() {
       limits: {},
       rooms: { summary: {}, list: [] },
       lobby: { count: 0, first_seq: 0, last_seq: 0, messages: [] },
-      activity_heatmap: null,
+      tclk_offers: [],
       errors: [],
     };
 
@@ -201,7 +171,6 @@ export default async function handler() {
         last_seq: lobby.length ? lobby[lobby.length - 1].seq : 0,
         messages: lobby,
       };
-      out.activity_heatmap = buildActivityHeatmap(lobby);
     } catch (e) {
       out.errors.push("lobby unavailable: " + String(e && e.message ? e.message : e));
     }
@@ -231,7 +200,7 @@ export default async function handler() {
         limits: {},
         rooms: { summary: {}, list: [] },
         lobby: { count: 0, first_seq: 0, last_seq: 0, messages: [] },
-        activity_heatmap: null,
+        tclk_offers: [],
         errors: ["fatal: " + String(e && e.message ? e.message : e)],
       }),
       { status: 200, headers: { "content-type": "application/json", "cache-control": "no-store" } }
